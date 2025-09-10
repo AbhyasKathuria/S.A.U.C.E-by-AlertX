@@ -1,0 +1,2 @@
+cd C:\Users\kathu\Desktop\projects\S.A.U.C.E\SAUCE_Final_Product\server
+node index.js

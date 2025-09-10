@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>S.A.U.C.E — Send Assistance Upon Critical Emergencies</title>
+
+  <!-- Tailwind CSS CDN for quick premium styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Leaflet for interactive mini-map (OpenStreetMap) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"/>
+  <style>
+    /* Custom visual polish */
+    body { background: linear-gradient(180deg,#0f172a 0%, #071029 60%); color: #e6eef8; }
+    .card { background: rgba(255,255,255,0.04); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.04); }
+    .glow { box-shadow: 0 8px 30px rgba(99,102,241,0.15); }
+    .pill { border-radius: 9999px; }
+    .tag-circle { width: 220px; height: 220px; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin:auto; position: relative; }
+    .pulse-ring {
+      position: absolute;
+      border-radius: 50%;
+      width: 260px; height: 260px;
+      background: radial-gradient(circle at 50% 50%, rgba(99,102,241,0.05), rgba(99,102,241,0.00) 60%);
+      animation: pulse 2.6s infinite;
+      pointer-events:none;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.9); opacity: 0.6; }
+      70% { transform: scale(1.18); opacity: 0.0; }
+      100% { transform: scale(1.25); opacity: 0; }
+    }
+    .tag-img { width: 160px; height: 160px; object-fit:contain; border-radius: 50%; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); display:block; }
+
+    /* Center the virtual press button exactly in middle of tag */
+    #virtualPress {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+    }
+
+    /* Animated flow lines */
+    .flow-line { stroke: rgba(99,102,241,0.7); stroke-width: 2; fill:none; stroke-dasharray: 4; opacity:0; transition: opacity .35s ease; }
+    .flow-line.active { opacity:1; animation: dash 1.2s linear forwards; }
+    @keyframes dash {
+      to { stroke-dashoffset: 0; opacity:1; }
+    }
+
+    /* Map size */
+    #miniMap { height: 260px; border-radius: 12px; overflow:hidden; }
+
+    /* Guide collapse */
+    .guide-hidden { max-height:0; overflow:hidden; transition: max-height .45s ease; }
+    .guide-open { max-height: 1000px; transition: max-height .6s ease; }
+
+    /* Button styles */
+    .btn-ghost { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+
+    /* small screen adjustments */
+    @media (max-width: 640px){
+      .tag-circle { width: 160px; height: 160px; }
+      .pulse-ring { width: 200px; height: 200px; }
+    }
+  </style>
+</head>
+<body>
+
+  <main class="min-h-screen flex items-start justify-center py-12 px-6">
+    <div class="max-w-6xl w-full grid gap-8 lg:grid-cols-2">
+
+      <!-- LEFT: Hero + Interactive Tag -->
+      <section class="p-8 card rounded-2xl glow">
+        <div class="flex items-start justify-between">
+          <div>
+            <h1 class="text-3xl font-semibold text-white">S.A.U.C.E</h1>
+            <p class="mt-1 text-slate-300">Send Assistance Upon Critical Emergencies — Safety in your pocket.</p>
+          </div>
+          <div class="text-right">
+            <span class="text-sm text-slate-400">Prototype • Interactive Demo</span>
+          </div>
+        </div>
+
+        <div class="mt-8 flex flex-col items-center">
+          <div class="relative mb-6">
+            <div id="pulse" class="pulse-ring" aria-hidden="true"></div>
+
+            <!-- Tag circle -->
+            <div class="tag-circle relative card" aria-label="S.A.U.C.E Tag">
+              <!-- Placeholder for tag image (replace src with your image file) -->
+              <img id="tagImage" src="front.png" alt="S.A.U.C.E Tag" class="tag-img" />
+              <!-- Virtual physical button overlay (CENTERED) -->
+              <button id="virtualPress" class="w-20 h-20 rounded-full bg-gradient-to-b from-white/8 to-white/3 border border-white/8 flex items-center justify-center transform transition active:scale-95 shadow-md" aria-label="virtual tag button">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="5" stroke="white" stroke-opacity="0.9" stroke-width="1.2"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Status & controls -->
+          <div class="w-full flex items-center justify-center space-x-4">
+            <div id="statusBadge" class="pill px-4 py-2 text-sm font-medium bg-emerald-600/20 text-emerald-300 border border-emerald-600/30">Status: Safe</div>
+            <button id="simulateBtn" class="pill px-4 py-2 btn-ghost text-sm">Simulate Panic</button>
+            <button id="resetBtn" class="pill px-4 py-2 btn-ghost text-sm hidden">Reset</button>
+          </div>
+
+          <!-- Flow diagram -->
+          <div class="mt-8 w-full">
+            <svg id="flowSVG" viewBox="0 0 900 160" class="w-full" aria-hidden="true">
+              <!-- nodes -->
+              <g id="nodeTag"><rect x="20" y="40" width="140" height="80" rx="12" fill="rgba(255,255,255,0.03)"/><text x="90" y="90" fill="#cde1ff" font-size="14" text-anchor="middle" font-weight="600">Tag</text></g>
+              <g id="nodeApp"><rect x="200" y="24" width="140" height="112" rx="12" fill="rgba(255,255,255,0.03)"/><text x="270" y="90" fill="#cde1ff" font-size="14" text-anchor="middle" font-weight="600">App</text></g>
+              <g id="nodeServer"><rect x="380" y="24" width="140" height="112" rx="12" fill="rgba(255,255,255,0.03)"/><text x="450" y="90" fill="#cde1ff" font-size="14" text-anchor="middle" font-weight="600">Server</text></g>
+              <g id="nodeCommunity"><rect x="560" y="8" width="160" height="64" rx="12" fill="rgba(255,255,255,0.03)"/><text x="640" y="44" fill="#cde1ff" font-size="13" text-anchor="middle" font-weight="600">Nearby Users</text></g>
+              <g id="nodePolice"><rect x="560" y="88" width="160" height="64" rx="12" fill="rgba(255,255,255,0.03)"/><text x="640" y="124" fill="#cde1ff" font-size="13" text-anchor="middle" font-weight="600">Police</text></g>
+
+              <!-- flow lines -->
+              <path id="l1" class="flow-line" d="M160 80 C 180 80, 200 80, 200 80" />
+              <path id="l2" class="flow-line" d="M340 80 C 360 80, 380 80, 380 80" />
+              <path id="l3" class="flow-line" d="M520 80 C 540 80, 560 80, 560 80" />
+              <path id="l4" class="flow-line" d="M520 60 C 540 60, 560 60, 560 60" />
+            </svg>
+          </div>
+        </div>
+
+        <!-- mini map and live info -->
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div class="text-sm text-slate-300 mb-2">Live Location</div>
+            <div id="miniMap" class="rounded-xl shadow-inner" aria-label="mini map"></div>
+          </div>
+          <div>
+            <div class="text-sm text-slate-300 mb-2">Latest Activity</div>
+            <div id="activityLog" class="space-y-2 text-slate-200 text-sm card p-4 rounded-xl">
+              <div id="act-0">No emergencies yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: Features + Usage Guide -->
+      <aside class="p-8 card rounded-2xl space-y-6">
+        <div>
+          <h2 class="text-2xl font-semibold">Hi-Tech Features</h2>
+          <p class="text-slate-300 mt-1">Elegant, reliable, and secure — built for real emergencies.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="p-4 rounded-xl card">
+            <div class="text-lg font-semibold">📡 Live GPS Tracking</div>
+            <div class="text-sm text-slate-300 mt-1">Real-time location sharing with millisecond updates and precise routing to responders.</div>
+          </div>
+          <div class="p-4 rounded-xl card">
+            <div class="text-lg font-semibold">🔔 Dual-Tier Alerts</div>
+            <div class="text-sm text-slate-300 mt-1">Single press ignored. Double press triggers alert. Multiple presses escalate.</div>
+          </div>
+          <div class="p-4 rounded-xl card">
+            <div class="text-lg font-semibold">🔒 Secure Connect</div>
+            <div class="text-sm text-slate-300 mt-1">End-to-end encryption of location payloads and temporary sharing windows for privacy.</div>
+          </div>
+          <div class="p-4 rounded-xl card">
+            <div class="text-lg font-semibold">⚡ Low Power • Long Life</div>
+            <div class="text-sm text-slate-300 mt-1">Bluetooth LE + energy-efficient GPS keep standby months long.</div>
+          </div>
+        </div>
+
+        <!-- Usage Guide -->
+        <div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-xl font-medium">Usage Guide</h3>
+            <button id="toggleGuide" class="px-3 py-1 pill btn-ghost text-sm">Open Guide</button>
+          </div>
+
+          <div id="guideContent" class="guide-hidden mt-4 card p-4 rounded-xl text-slate-200">
+            <ol class="list-decimal ml-5 space-y-3">
+              <li><strong>Single Press:</strong> Ignored by default to prevent accidental triggers.</li>
+              <li><strong>Double Press:</strong> Activates emergency alert (notifies contacts).</li>
+              <li><strong>Multiple Press (3+):</strong> Full Panic Mode (notifies police & nearby users).</li>
+              <li><strong>Long Press (5s):</strong> Cancels an active alert (hold on the tag for 5 seconds).</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="pt-4">
+          <div class="text-sm text-slate-400">Want the product card, spec sheet, or printable one-pager for judges?</div>
+          <div class="mt-3 flex gap-3">
+            <button id="downloadSpec" class="px-4 py-2 pill bg-indigo-600 text-white">Download Spec</button>
+            <button id="contactBtn" class="px-4 py-2 pill btn-ghost">Contact Team</button>
+          </div>
+        </div>
+
+        <footer class="mt-6 text-xs text-slate-500">
+          © S.A.U.C.E • Send Assistance Upon Critical Emergencies — Prototype demo
+        </footer>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Libraries -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script>
+  // --- basic state
+  let isPanic = false;
+  let map, marker;
+  let activityIndex = 0;
+  let username = "PrimaryUser"; // example, can be dynamic later
+
+  // Initialize mini map
+  function initMap(){
+    map = L.map('miniMap', { zoomControl: false }).setView([20.5937,78.9629], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initMap();
+
+    const gBtn = document.getElementById('toggleGuide');
+    const guide = document.getElementById('guideContent');
+    const statusBadge = document.getElementById('statusBadge');
+    const simulateBtn = document.getElementById('simulateBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const virtualPress = document.getElementById('virtualPress');
+    const activityLog = document.getElementById('activityLog');
+
+    gBtn.addEventListener('click', ()=>{
+      const open = guide.classList.contains('guide-open');
+      guide.classList.toggle('guide-open', !open);
+      guide.classList.toggle('guide-hidden', open);
+      gBtn.textContent = open ? 'Open Guide' : 'Close Guide';
+    });
+
+    function logActivity(text){
+      activityIndex++;
+      const el = document.createElement('div');
+      el.id = 'act-' + activityIndex;
+      el.innerHTML = `<div class="text-sm">• <span class="font-medium">${new Date().toLocaleTimeString()}</span> — ${text}</div>`;
+      activityLog.prepend(el);
+    }
+
+    function sendUpdate(lat, lng, status){
+      fetch("http://localhost:3000/update", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ username, lat, lng, status })
+      });
+    }
+
+    // animate flow lines when panic
+    function activateFlow(){
+      document.querySelectorAll('.flow-line').forEach(p => {
+        p.classList.add('active');
+        p.style.strokeDashoffset = 100;
+      });
+    }
+    function resetFlow(){
+      document.querySelectorAll('.flow-line').forEach(p=> p.classList.remove('active'));
+    }
+
+    // trigger panic
+    async function triggerPanic(isMulti=false){
+      if (isPanic) return;
+      isPanic = true;
+      statusBadge.textContent = isMulti ? 'Status: PANIC MODE' : 'Status: PANIC';
+      statusBadge.classList.remove('bg-emerald-600/20');
+      statusBadge.classList.add('bg-red-600/20');
+      simulateBtn.classList.add('hidden');
+      resetBtn.classList.remove('hidden');
+
+      activateFlow();
+      logActivity('Emergency triggered. Sharing live location...');
+
+      if (navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(pos=>{
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setMarker(lat, lng, 'User (live)');
+          logActivity('Location obtained from device.');
+          if (marker) marker.bindPopup('User (live)').openPopup();
+          sendUpdate(lat, lng, "panic");
+        }, ()=>{
+          setMarker(28.6139, 77.2090, 'User (approx)');
+          logActivity('Could not access geolocation. Using fallback.');
+          sendUpdate(28.6139, 77.2090, "panic");
+        }, { timeout: 8000 });
+      } else {
+        setMarker(28.6139, 77.2090, 'User (approx)');
+        logActivity('Geolocation unavailable.');
+        sendUpdate(28.6139, 77.2090, "panic");
+      }
+    }
+
+    function setMarker(lat, lng, title){
+      map.setView([lat, lng], 14);
+      if (marker) marker.setLatLng([lat, lng]);
+      else marker = L.marker([lat, lng]).addTo(map).bindPopup(title);
+    }
+
+    function resetPanic(){
+      isPanic = false;
+      statusBadge.textContent = 'Status: Safe';
+      statusBadge.classList.add('bg-emerald-600/20');
+      statusBadge.classList.remove('bg-red-600/20');
+      simulateBtn.classList.remove('hidden');
+      resetBtn.classList.add('hidden');
+      resetFlow();
+      logActivity('Emergency cleared.');
+      if (marker) { map.removeLayer(marker); marker = null; }
+      sendUpdate(0,0,"safe"); // reset status on server
+    }
+
+    // --- Interaction Logic
+    let clickCount = 0, clickTimer, longPressTimer;
+
+    virtualPress.addEventListener('mousedown', () => {
+      longPressTimer = setTimeout(() => {
+        resetPanic(); // long press = cancel
+        logActivity('Emergency cancelled (long press).');
+      }, 5000);
+    });
+
+    virtualPress.addEventListener('mouseup', () => clearTimeout(longPressTimer));
+
+    virtualPress.addEventListener('click', () => {
+      clickCount++;
+      if (clickTimer) clearTimeout(clickTimer);
+
+      clickTimer = setTimeout(() => {
+        if (clickCount === 1) {
+          // 🔹 Single click ignored
+          logActivity('Single press ignored.');
+        } else if (clickCount === 2) {
+          // Double click = panic
+          triggerPanic(false);
+        } else if (clickCount >= 3) {
+          // Triple+ click = full panic
+          triggerPanic(true);
+          logActivity('Multiple presses — Full panic mode.');
+        }
+        clickCount = 0;
+      }, 350);
+    });
+
+    simulateBtn.addEventListener('click', ()=>triggerPanic(false));
+    resetBtn.addEventListener('click', resetPanic);
+
+document.getElementById('downloadSpec').addEventListener('click', () => {
+  const link = document.createElement("a");
+  link.href = "SAUCE_Docs.pdf";   // the actual file you saved
+  link.download = "SAUCE_Docs.pdf"; // the name user will see when downloading 
+  link.click();
+});
+
+    document.getElementById('contactBtn').addEventListener('click', () => {
+      window.location.href = 'mailto:team@sauce.example?subject=S.A.U.C.E%20Demo%20Interest';
+    });
+
+    logActivity('S.A.U.C.E demo loaded. Double press the tag or use "Simulate Panic" to start.');
+  });
+</script>
+<footer class="mt-12 text-center text-xs text-slate-500 border-t border-slate-700/40 pt-6">
+© 2025 S.A.U.C.E — Send Assistance Upon Critical Emergencies • Team AlertX
+</footer>
+
+</body>
+</html>
