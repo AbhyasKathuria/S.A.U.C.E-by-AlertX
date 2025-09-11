@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "server/index.js", "use": "@vercel/node" },
+    { "src": "SAUCE_webpage.html", "use": "@vercel/static" },
+    { "src": "primary_user_app/**", "use": "@vercel/static" },
+    { "src": "secondary_user_app/**", "use": "@vercel/static" },
+    { "src": "police_dashboard/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "server/index.js" },
+    { "src": "/primary", "dest": "primary_user_app/index.html" },
+    { "src": "/secondary", "dest": "secondary_user_app/index.html" },
+    { "src": "/police", "dest": "police_dashboard/index.html" },
+    { "src": "/(.*)", "dest": "SAUCE_webpage.html" }
+  ]
+}
